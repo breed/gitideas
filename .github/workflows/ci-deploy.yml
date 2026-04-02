@@ -9,9 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   DEPLOY_HOST: research-vpn.homeofcode.com
-  DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-  DEPLOY_PATH: /usr/local/bin/gitideas
-  SERVICE_NAME: gitideas
+  DEPLOY_USER: gitideas
 
 jobs:
   build-and-test:
@@ -73,8 +71,8 @@ jobs:
 
           # Install and restart
           ssh $SSH_OPTS $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
-            sudo mv /tmp/gitideas /usr/local/bin/gitideas
-            sudo mv /tmp/gitideas-client /usr/local/bin/gitideas-client
-            sudo chmod +x /usr/local/bin/gitideas /usr/local/bin/gitideas-client
-            sudo systemctl restart gitideas
+            sudo /usr/bin/mv /tmp/gitideas /usr/local/bin/gitideas
+            sudo /usr/bin/mv /tmp/gitideas-client /usr/local/bin/gitideas-client
+            sudo /usr/bin/chmod +x /usr/local/bin/gitideas /usr/local/bin/gitideas-client
+            sudo /usr/bin/systemctl restart gitideas
           EOF
