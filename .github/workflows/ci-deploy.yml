@@ -54,6 +54,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: gitideas-binaries
+          path: dist
 
       - name: Deploy to server
         env:
@@ -67,12 +68,14 @@ jobs:
 
           SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
 
-          # Find and verify binaries
-          ls -la target/release/gitideas target/release/gitideas-client
-          chmod +x target/release/gitideas target/release/gitideas-client
+          # Find binaries (artifact may preserve target/release/ prefix)
+          find dist -type f -name 'gitideas*' | head -10
+          GITIDEAS=$(find dist -type f -name 'gitideas' | head -1)
+          GITIDEAS_CLIENT=$(find dist -type f -name 'gitideas-client' | head -1)
+          chmod +x "$GITIDEAS" "$GITIDEAS_CLIENT"
 
           # Copy binaries to server
-          scp $SSH_OPTS target/release/gitideas target/release/gitideas-client "$DEPLOY_USER@$DEPLOY_HOST:/tmp/"
+          scp $SSH_OPTS "$GITIDEAS" "$GITIDEAS_CLIENT" "$DEPLOY_USER@$DEPLOY_HOST:/tmp/"
 
           # Install and restart service
           ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" 'sudo /usr/bin/mv /tmp/gitideas /usr/local/bin/gitideas && sudo /usr/bin/mv /tmp/gitideas-client /usr/local/bin/gitideas-client && sudo /usr/bin/chmod +x /usr/local/bin/gitideas /usr/local/bin/gitideas-client && sudo /usr/bin/systemctl restart gitideas'
