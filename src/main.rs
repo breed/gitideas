@@ -5,6 +5,8 @@ mod search;
 mod storage;
 mod types;
 
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::extract::{Request, State};
@@ -15,6 +17,24 @@ use axum::routing::post;
 use axum::Router;
 
 use api::AppState;
+
+fn parse_ini(content: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+        // Skip section headers like [gitideas]
+        if line.starts_with('[') {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            map.insert(key.trim().to_string(), value.trim().to_string());
+        }
+    }
+    map
+}
 
 async fn auth_middleware(
     State(state): State<Arc<AppState>>,
@@ -41,23 +61,43 @@ async fn auth_middleware(
 
 #[tokio::main]
 async fn main() {
-    let port: u16 = std::env::args()
-        .nth(1)
-        .expect("Usage: gitideas HTTP_PORT")
+    let config_path = dirs::home_dir()
+        .expect("could not determine home directory")
+        .join(".config/gitideas.ini");
+
+    let content = std::fs::read_to_string(&config_path).unwrap_or_else(|e| {
+        eprintln!("error: could not read {}: {}", config_path.display(), e);
+        std::process::exit(1);
+    });
+
+    let config = parse_ini(&content);
+
+    let port: u16 = config
+        .get("port")
+        .expect("config missing 'port'")
         .parse()
-        .expect("PORT must be a valid number");
+        .expect("'port' must be a valid number");
 
-    let token =
-        std::env::var("GITIDEAS_TOKEN").expect("GITIDEAS_TOKEN environment variable must be set");
+    let token = config
+        .get("token")
+        .expect("config missing 'token'")
+        .to_string();
 
-    // Verify we're in a git repo
+    let repo_path = PathBuf::from(
+        config
+            .get("repo")
+            .expect("config missing 'repo'"),
+    );
+
+    // Verify the repo path is a git repository
     let git_check = std::process::Command::new("git")
         .args(["rev-parse", "--git-dir"])
+        .current_dir(&repo_path)
         .output();
     match git_check {
         Ok(output) if output.status.success() => {}
         _ => {
-            eprintln!("error: current directory is not a git repository");
+            eprintln!("error: {} is not a git repository", repo_path.display());
             std::process::exit(1);
         }
     }
@@ -65,6 +105,7 @@ async fn main() {
     let state = Arc::new(AppState {
         git_lock: tokio::sync::Mutex::new(()),
         auth_token: token,
+        repo_path,
     });
 
     let app = Router::new()

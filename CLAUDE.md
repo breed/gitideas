@@ -53,10 +53,16 @@ to add an update
     - 'after' - search for starting after the given date, can be missing
     - 'before' - search for starting before the given date, can be missing
 
-## git
+## configuration
 
-the program will be run in a git directory, so all git operations should happen in the current directory
+config is read from `~/.config/gitideas.ini`:
+
+```ini
+port = 8080
+token = your-bearer-token
+repo = /path/to/git/repo
+```
 
 ## running the code
 
-`gitideas HTTP_PORT`
+`gitideas`

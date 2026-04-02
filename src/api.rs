@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::extract::State;
@@ -10,6 +11,7 @@ use crate::types::{AddRequest, AddResponse, AppError, SearchRequest, SearchRespo
 pub struct AppState {
     pub git_lock: tokio::sync::Mutex<()>,
     pub auth_token: String,
+    pub repo_path: PathBuf,
 }
 
 pub async fn add_handler(
@@ -22,7 +24,8 @@ pub async fn add_handler(
     let _guard = state.git_lock.lock().await;
 
     let (file, date) =
-        crate::git::add_with_retry(req.idea_type, &req.subject, &req.text, &now).await?;
+        crate::git::add_with_retry(&state.repo_path, req.idea_type, &req.subject, &req.text, &now)
+            .await?;
 
     Ok(Json(AddResponse {
         ok: true,
@@ -32,11 +35,13 @@ pub async fn add_handler(
 }
 
 pub async fn search_handler(
+    State(state): State<Arc<AppState>>,
     Json(req): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, AppError> {
+    let repo_path = state.repo_path.clone();
     // Search runs without the git lock — reads are safe concurrently
     // Run blocking file I/O on a blocking thread
-    let result = tokio::task::spawn_blocking(move || search::search(&req))
+    let result = tokio::task::spawn_blocking(move || search::search(&repo_path, &req))
         .await
         .map_err(|e| AppError::GitError(format!("search task failed: {}", e)))??;
 

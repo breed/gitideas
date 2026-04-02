@@ -1,9 +1,12 @@
+use std::path::Path;
+
 use tokio::process::Command;
 
 use crate::types::AppError;
 
-async fn run_git(args: &[&str]) -> Result<String, AppError> {
+async fn run_git(repo: &Path, args: &[&str]) -> Result<String, AppError> {
     let output = Command::new("git")
+        .current_dir(repo)
         .args(args)
         .output()
         .await
@@ -21,10 +24,9 @@ async fn run_git(args: &[&str]) -> Result<String, AppError> {
     }
 }
 
-pub async fn git_pull() -> Result<(), AppError> {
-    // Pull with rebase to keep history linear
-    // If there's no remote configured or no upstream, that's okay for local-only use
+async fn git_pull(repo: &Path) -> Result<(), AppError> {
     let output = Command::new("git")
+        .current_dir(repo)
         .args(["pull", "--rebase"])
         .output()
         .await
@@ -32,7 +34,6 @@ pub async fn git_pull() -> Result<(), AppError> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        // If there's no remote or no tracking branch, that's not a fatal error
         if stderr.contains("no tracking information")
             || stderr.contains("no such remote")
             || stderr.contains("There is no tracking information")
@@ -44,22 +45,21 @@ pub async fn git_pull() -> Result<(), AppError> {
     Ok(())
 }
 
-pub async fn git_add(path: &str) -> Result<(), AppError> {
-    run_git(&["add", path]).await?;
+async fn git_add(repo: &Path, path: &str) -> Result<(), AppError> {
+    run_git(repo, &["add", path]).await?;
     Ok(())
 }
 
-pub async fn git_commit(message: &str) -> Result<(), AppError> {
-    run_git(&["commit", "-m", message]).await?;
+async fn git_commit(repo: &Path, message: &str) -> Result<(), AppError> {
+    run_git(repo, &["commit", "-m", message]).await?;
     Ok(())
 }
 
-pub async fn git_push() -> Result<(), AppError> {
-    run_git(&["push"]).await?;
+async fn git_push(repo: &Path) -> Result<(), AppError> {
+    run_git(repo, &["push"]).await?;
     Ok(())
 }
 
-/// Check if a push failure is due to a conflict (remote has new commits).
 fn is_conflict_error(err: &AppError) -> bool {
     match err {
         AppError::GitError(msg) => {
@@ -72,27 +72,26 @@ fn is_conflict_error(err: &AppError) -> bool {
     }
 }
 
-/// Get the current branch name.
-async fn current_branch() -> Result<String, AppError> {
-    let output = run_git(&["rev-parse", "--abbrev-ref", "HEAD"]).await?;
+async fn current_branch(repo: &Path) -> Result<String, AppError> {
+    let output = run_git(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).await?;
     Ok(output.trim().to_string())
 }
 
-/// Reset to the remote tracking branch, discarding local commits.
-async fn git_reset_to_remote() -> Result<(), AppError> {
-    let branch = current_branch().await?;
-    // Abort any in-progress rebase (ignore errors)
+async fn git_reset_to_remote(repo: &Path) -> Result<(), AppError> {
+    let branch = current_branch(repo).await?;
     let _ = Command::new("git")
+        .current_dir(repo)
         .args(["rebase", "--abort"])
         .output()
         .await;
-    run_git(&["reset", "--hard", &format!("origin/{}", branch)]).await?;
+    run_git(repo, &["reset", "--hard", &format!("origin/{}", branch)]).await?;
     Ok(())
 }
 
 /// The full ADD workflow with conflict retry.
 /// Returns the filename the entry was written to.
 pub async fn add_with_retry(
+    repo: &Path,
     idea_type: crate::types::IdeaType,
     subject: &str,
     text: &str,
@@ -100,40 +99,33 @@ pub async fn add_with_retry(
 ) -> Result<(String, String), AppError> {
     use crate::entry::{format_entry, validate_body, validate_subject};
     use crate::storage::{append_to_file, target_file};
-    use std::path::Path;
 
     validate_subject(subject)?;
     validate_body(text)?;
 
     let entry_text = format_entry(now, subject, text);
-    let dir = Path::new(".");
 
     for _attempt in 0..5 {
-        git_pull().await?;
+        git_pull(repo).await?;
 
-        let target = target_file(dir, idea_type, now)?;
+        let target = target_file(repo, idea_type, now)?;
         append_to_file(&target, &entry_text)?;
 
         let filename = target.file_name().unwrap().to_string_lossy().to_string();
 
-        git_add(&filename).await?;
+        git_add(repo, &filename).await?;
 
         let commit_msg = format!("{}: {}", idea_type, &subject[..subject.len().min(50)]);
-        git_commit(&commit_msg).await?;
+        git_commit(repo, &commit_msg).await?;
 
-        match git_push().await {
+        match git_push(repo).await {
             Ok(()) => return Ok((filename.clone(), now.to_string())),
             Err(e) if is_conflict_error(&e) => {
-                // Conflict — discard and retry
                 eprintln!("push conflict, retrying...");
-                git_reset_to_remote().await?;
+                git_reset_to_remote(repo).await?;
                 continue;
             }
             Err(e) => {
-                // Non-conflict push error — still try to clean up, then propagate
-                // This handles the case where there's no remote configured
-                // If push fails for non-conflict reasons, the commit is still local
-                // which is acceptable for local-only use
                 eprintln!("push failed (non-conflict): {}", e);
                 return Ok((filename.clone(), now.to_string()));
             }

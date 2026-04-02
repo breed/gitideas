@@ -19,8 +19,8 @@ fn normalize_date(date: &str, is_before: bool) -> String {
     }
 }
 
-pub fn search(req: &SearchRequest) -> Result<SearchResponse, AppError> {
-    let files = list_data_files(std::path::Path::new("."), req.idea_type)?;
+pub fn search(repo: &std::path::Path, req: &SearchRequest) -> Result<SearchResponse, AppError> {
+    let files = list_data_files(repo, req.idea_type)?;
 
     let after = req.after.as_deref().map(|d| normalize_date(d, false));
     let before = req.before.as_deref().map(|d| normalize_date(d, true));

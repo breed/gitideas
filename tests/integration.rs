@@ -8,6 +8,7 @@ struct TestServer {
     port: u16,
     token: String,
     _dir: TempDir,
+    _home_dir: TempDir,
 }
 
 impl TestServer {
@@ -42,11 +43,24 @@ impl TestServer {
         drop(listener);
         let token = "test-token-12345".to_string();
 
+        // Create a fake home dir with config file
+        let home_dir = TempDir::new().unwrap();
+        let config_dir = home_dir.path().join(".config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("gitideas.ini"),
+            format!(
+                "port = {}\ntoken = {}\nrepo = {}\n",
+                port,
+                token,
+                dir.path().display()
+            ),
+        )
+        .unwrap();
+
         let binary = env!("CARGO_BIN_EXE_gitideas");
         let child = Command::new(binary)
-            .arg(port.to_string())
-            .current_dir(dir.path())
-            .env("GITIDEAS_TOKEN", &token)
+            .env("HOME", home_dir.path())
             .spawn()
             .expect("failed to start server");
 
@@ -58,6 +72,7 @@ impl TestServer {
             port,
             token,
             _dir: dir,
+            _home_dir: home_dir,
         }
     }
 
