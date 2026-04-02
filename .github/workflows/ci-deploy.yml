@@ -1,0 +1,80 @@
+name: Build, Test & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  DEPLOY_HOST: research-vpn.homeofcode.com
+  DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+  DEPLOY_PATH: /usr/local/bin/gitideas
+  SERVICE_NAME: gitideas
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build
+        run: cargo build --release --features client
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Upload release binary
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitideas-binaries
+          path: |
+            target/release/gitideas
+            target/release/gitideas-client
+
+  deploy:
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: gitideas-binaries
+
+      - name: Deploy to server
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null
+
+          SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
+
+          # Copy binaries
+          scp $SSH_OPTS gitideas gitideas-client $DEPLOY_USER@$DEPLOY_HOST:/tmp/
+
+          # Install and restart
+          ssh $SSH_OPTS $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
+            sudo mv /tmp/gitideas /usr/local/bin/gitideas
+            sudo mv /tmp/gitideas-client /usr/local/bin/gitideas-client
+            sudo chmod +x /usr/local/bin/gitideas /usr/local/bin/gitideas-client
+            sudo systemctl restart gitideas
+          EOF
