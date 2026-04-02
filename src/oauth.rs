@@ -11,6 +11,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use hmac::Mac;
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
@@ -21,7 +22,6 @@ use crate::api::AppState;
 pub struct OAuthState {
     pub clients: Mutex<HashMap<String, RegisteredClient>>,
     pub auth_codes: Mutex<HashMap<String, AuthCode>>,
-    pub access_tokens: Mutex<HashMap<String, TokenInfo>>,
     pub server_url: String,
 }
 
@@ -30,7 +30,6 @@ impl OAuthState {
         Self {
             clients: Mutex::new(HashMap::new()),
             auth_codes: Mutex::new(HashMap::new()),
-            access_tokens: Mutex::new(HashMap::new()),
             server_url,
         }
     }
@@ -46,11 +45,6 @@ pub struct AuthCode {
     pub redirect_uri: String,
     pub code_challenge: String,
     pub created: Instant,
-}
-
-pub struct TokenInfo {
-    pub created: Instant,
-    pub expires_in: Duration,
 }
 
 fn random_hex(bytes: usize) -> String {
@@ -356,24 +350,21 @@ pub async fn token_exchange(
             .into_response();
     }
 
-    // Issue access token
-    let access_token = random_hex(32);
-    let expires_in = Duration::from_secs(3600);
-
-    state.oauth.access_tokens.lock().await.insert(
-        access_token.clone(),
-        TokenInfo {
-            created: Instant::now(),
-            expires_in,
-        },
-    );
+    // Issue access token: HMAC-SHA256(config_token, random_nonce)
+    // This can be validated against the config token without storing state.
+    let nonce = random_hex(16);
+    let mut mac = hmac::Hmac::<Sha256>::new_from_slice(state.auth_token.as_bytes())
+        .expect("HMAC key");
+    mac.update(nonce.as_bytes());
+    let sig = hex::encode(mac.finalize().into_bytes());
+    let access_token = format!("{}:{}", nonce, sig);
 
     info!(client_id = %req.client_id, "oauth token issued");
 
     Json(TokenResponse {
         access_token,
         token_type: "Bearer".to_string(),
-        expires_in: expires_in.as_secs(),
+        expires_in: 0, // no expiration
     })
     .into_response()
 }
@@ -381,11 +372,14 @@ pub async fn token_exchange(
 // --- Token Validation (used by MCP middleware) ---
 
 pub async fn validate_oauth_token(state: &AppState, token: &str) -> bool {
-    let tokens = state.oauth.access_tokens.lock().await;
-    if let Some(info) = tokens.get(token) {
-        return info.created.elapsed() < info.expires_in;
-    }
-    false
+    let Some((nonce, sig)) = token.split_once(':') else {
+        return false;
+    };
+    let mut mac = hmac::Hmac::<Sha256>::new_from_slice(state.auth_token.as_bytes())
+        .expect("HMAC key");
+    mac.update(nonce.as_bytes());
+    let expected = hex::encode(mac.finalize().into_bytes());
+    expected == sig
 }
 
 fn html_escape(s: &str) -> String {
