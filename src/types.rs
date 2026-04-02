@@ -38,6 +38,9 @@ pub struct AddRequest {
     pub idea_type: IdeaType,
     pub subject: String,
     pub text: String,
+    pub id: Option<String>,
+    pub due: Option<String>,
+    pub complete: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -48,22 +51,29 @@ pub struct SearchRequest {
     pub before: Option<String>,
     #[serde(rename = "type")]
     pub idea_type: Option<IdeaType>,
+    pub id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct AddResponse {
     pub ok: bool,
+    pub id: String,
     pub file: String,
     pub date: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct EntryResponse {
+    pub id: String,
     #[serde(rename = "type")]
     pub idea_type: IdeaType,
     pub date: String,
     pub subject: String,
     pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub complete: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

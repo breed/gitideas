@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use axum::extract::State;
-use axum::response::{IntoResponse, Response};
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
 use serde_json::{json, Value};
@@ -18,7 +18,6 @@ pub async fn mcp_handler(
 ) -> Response {
     // Auth is handled by the OAuth middleware layer
     if let Some(arr) = body.as_array() {
-        // Batch request
         let mut responses = Vec::new();
         for req in arr {
             if let Some(resp) = handle_jsonrpc(&state, req).await {
@@ -31,18 +30,15 @@ pub async fn mcp_handler(
         return Json(Value::Array(responses)).into_response();
     }
 
-    // Single request
     match handle_jsonrpc(&state, &body).await {
         Some(resp) => {
             let mut response = Json(resp).into_response();
-            // Add session header
-            response.headers_mut().insert(
-                "Mcp-Session-Id",
-                "gitideas-session".parse().unwrap(),
-            );
+            response
+                .headers_mut()
+                .insert("Mcp-Session-Id", "gitideas-session".parse().unwrap());
             response
         }
-        None => StatusCode::NO_CONTENT.into_response(), // Notification, no response
+        None => StatusCode::NO_CONTENT.into_response(),
     }
 }
 
@@ -51,7 +47,6 @@ async fn handle_jsonrpc(state: &AppState, req: &Value) -> Option<Value> {
     let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
     let params = req.get("params").cloned().unwrap_or(json!({}));
 
-    // Notifications (no id) get no response
     if id.is_none() {
         return None;
     }
@@ -111,6 +106,18 @@ fn handle_tools_list() -> Value {
                         "text": {
                             "type": "string",
                             "description": "The body text of the entry"
+                        },
+                        "id": {
+                            "type": "string",
+                            "description": "Optional 72-bit URL-safe base64 ID to connect related entries. Auto-generated if omitted."
+                        },
+                        "due": {
+                            "type": "string",
+                            "description": "Optional due date (YYYY-MM-DD or YYYY-MM-DD-hh:mm)"
+                        },
+                        "complete": {
+                            "type": "string",
+                            "description": "Optional completion date (YYYY-MM-DD or YYYY-MM-DD-hh:mm)"
                         }
                     },
                     "required": ["type", "subject", "text"]
@@ -142,6 +149,10 @@ fn handle_tools_list() -> Value {
                         "before": {
                             "type": "string",
                             "description": "Only entries before this date (YYYY-MM-DD or YYYY-MM-DD-hh:mm)"
+                        },
+                        "id": {
+                            "type": "string",
+                            "description": "Filter by entry ID to find related entries"
                         }
                     }
                 }
@@ -161,7 +172,10 @@ async fn handle_tools_call(state: &AppState, params: &Value) -> Result<Value, Va
     match tool_name {
         "add" => tool_add(state, &args).await,
         "search" => tool_search(state, &args).await,
-        _ => Err(jsonrpc_error(-32602, &format!("unknown tool: {}", tool_name))),
+        _ => Err(jsonrpc_error(
+            -32602,
+            &format!("unknown tool: {}", tool_name),
+        )),
     }
 }
 
@@ -182,19 +196,35 @@ async fn tool_add(state: &AppState, args: &Value) -> Result<Value, Value> {
     let idea_type = IdeaType::from_str(type_str)
         .ok_or_else(|| jsonrpc_error(-32602, "type must be IDEA, TODO, or MEMORY"))?;
 
+    let id = args
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .unwrap_or_else(crate::entry::generate_id);
+    let due = args.get("due").and_then(|v| v.as_str());
+    let complete = args.get("complete").and_then(|v| v.as_str());
+
     let now = Utc::now().format("%Y-%m-%d-%H:%M").to_string();
 
-    // Acquire git lock
     let _guard = state.git_lock.lock().await;
 
-    let (file, date) = crate::git::add_with_retry(&state.repo_path, idea_type, subject, text, &now)
-        .await
-        .map_err(|e| jsonrpc_error(-32000, &e.to_string()))?;
+    let (file, date, id) = crate::git::add_with_retry(
+        &state.repo_path,
+        idea_type,
+        &id,
+        subject,
+        text,
+        due,
+        complete,
+        &now,
+    )
+    .await
+    .map_err(|e| jsonrpc_error(-32000, &e.to_string()))?;
 
     Ok(json!({
         "content": [{
             "type": "text",
-            "text": format!("Added {} entry: \"{}\" to {} ({})", idea_type, subject, file, date)
+            "text": format!("Added {} entry [{}]: \"{}\" to {} ({})", idea_type, id, subject, file, date)
         }]
     }))
 }
@@ -208,11 +238,24 @@ async fn tool_search(state: &AppState, args: &Value) -> Result<Value, Value> {
         .and_then(IdeaType::from_str);
 
     let req = SearchRequest {
-        subject: args.get("subject").and_then(|v| v.as_str()).map(String::from),
-        text: args.get("text").and_then(|v| v.as_str()).map(String::from),
-        after: args.get("after").and_then(|v| v.as_str()).map(String::from),
-        before: args.get("before").and_then(|v| v.as_str()).map(String::from),
+        subject: args
+            .get("subject")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        text: args
+            .get("text")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        after: args
+            .get("after")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        before: args
+            .get("before")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         idea_type,
+        id: args.get("id").and_then(|v| v.as_str()).map(String::from),
     };
 
     let repo_path = state.repo_path.clone();
@@ -233,9 +276,15 @@ async fn tool_search(state: &AppState, args: &Value) -> Result<Value, Value> {
     let mut output = String::new();
     for entry in &result.entries {
         output.push_str(&format!(
-            "[{}] {} — {}\n",
-            entry.date, entry.idea_type, entry.subject
+            "[{}] {} ({}) — {}\n",
+            entry.date, entry.idea_type, entry.id, entry.subject
         ));
+        if let Some(ref due) = entry.due {
+            output.push_str(&format!("  due: {}\n", due));
+        }
+        if let Some(ref complete) = entry.complete {
+            output.push_str(&format!("  complete: {}\n", complete));
+        }
         if !entry.text.is_empty() {
             for line in entry.text.lines() {
                 output.push_str(&format!("  {}\n", line));

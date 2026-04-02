@@ -20,16 +20,26 @@ pub async fn add_handler(
     Json(req): Json<AddRequest>,
 ) -> Result<Json<AddResponse>, AppError> {
     let now = Utc::now().format("%Y-%m-%d-%H:%M").to_string();
+    let id = req.id.unwrap_or_else(crate::entry::generate_id);
 
     // Acquire lock — only one ADD at a time since git ops aren't concurrent-safe
     let _guard = state.git_lock.lock().await;
 
-    let (file, date) =
-        crate::git::add_with_retry(&state.repo_path, req.idea_type, &req.subject, &req.text, &now)
-            .await?;
+    let (file, date, id) = crate::git::add_with_retry(
+        &state.repo_path,
+        req.idea_type,
+        &id,
+        &req.subject,
+        &req.text,
+        req.due.as_deref(),
+        req.complete.as_deref(),
+        &now,
+    )
+    .await?;
 
     Ok(Json(AddResponse {
         ok: true,
+        id,
         file,
         date,
     }))

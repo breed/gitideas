@@ -89,21 +89,24 @@ async fn git_reset_to_remote(repo: &Path) -> Result<(), AppError> {
 }
 
 /// The full ADD workflow with conflict retry.
-/// Returns the filename the entry was written to.
+/// Returns (file_path, date, id).
 pub async fn add_with_retry(
     repo: &Path,
     idea_type: crate::types::IdeaType,
+    id: &str,
     subject: &str,
     text: &str,
+    due: Option<&str>,
+    complete: Option<&str>,
     now: &str,
-) -> Result<(String, String), AppError> {
+) -> Result<(String, String, String), AppError> {
     use crate::entry::{format_entry, validate_body, validate_subject};
     use crate::storage::{append_to_file, relative_path, target_file};
 
     validate_subject(subject)?;
     validate_body(text)?;
 
-    let entry_text = format_entry(now, subject, text);
+    let entry_text = format_entry(id, now, subject, due, complete, text);
 
     for _attempt in 0..5 {
         git_pull(repo).await?;
@@ -119,7 +122,7 @@ pub async fn add_with_retry(
         git_commit(repo, &commit_msg).await?;
 
         match git_push(repo).await {
-            Ok(()) => return Ok((rel_path.clone(), now.to_string())),
+            Ok(()) => return Ok((rel_path.clone(), now.to_string(), id.to_string())),
             Err(e) if is_conflict_error(&e) => {
                 eprintln!("push conflict, retrying...");
                 git_reset_to_remote(repo).await?;
@@ -127,7 +130,7 @@ pub async fn add_with_retry(
             }
             Err(e) => {
                 eprintln!("push failed (non-conflict): {}", e);
-                return Ok((rel_path.clone(), now.to_string()));
+                return Ok((rel_path.clone(), now.to_string(), id.to_string()));
             }
         }
     }

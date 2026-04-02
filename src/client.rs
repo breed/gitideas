@@ -240,9 +240,12 @@ fn open_browser(url: &str) -> Result<(), std::io::Error> {
 
 fn usage() -> ! {
     eprintln!("Usage:");
-    eprintln!("  gitideas-client add <type> <subject>");
+    eprintln!("  gitideas-client add <type> <subject> [options]");
     eprintln!("    type: IDEA, TODO, or MEMORY");
     eprintln!("    reads body text from stdin");
+    eprintln!("    --id <id>            set entry ID (auto-generated if omitted)");
+    eprintln!("    --due <date>         due date (YYYY-MM-DD or YYYY-MM-DD-hh:mm)");
+    eprintln!("    --complete <date>    completion date");
     eprintln!();
     eprintln!("  gitideas-client search [options]");
     eprintln!("    --subject <query>    search subjects");
@@ -250,6 +253,7 @@ fn usage() -> ! {
     eprintln!("    --type <type>        filter by type (IDEA, TODO, MEMORY)");
     eprintln!("    --after <date>       entries after date (YYYY-MM-DD or YYYY-MM-DD-hh:mm)");
     eprintln!("    --before <date>      entries before date");
+    eprintln!("    --id <id>            filter by entry ID");
     process::exit(1);
 }
 
@@ -270,7 +274,7 @@ async fn main() {
 async fn cmd_add(args: &[String]) {
     if args.len() < 2 {
         eprintln!("error: add requires <type> and <subject>");
-        eprintln!("Usage: gitideas-client add <type> <subject>");
+        eprintln!("Usage: gitideas-client add <type> <subject> [--id ID] [--due DATE] [--complete DATE]");
         process::exit(1);
     }
 
@@ -284,6 +288,30 @@ async fn cmd_add(args: &[String]) {
     }
 
     let subject = &args[1];
+
+    // Parse optional flags after type and subject
+    let mut id: Option<&str> = None;
+    let mut due: Option<&str> = None;
+    let mut complete: Option<&str> = None;
+    let mut i = 2;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--id" => {
+                i += 1;
+                id = args.get(i).map(|s| s.as_str());
+            }
+            "--due" => {
+                i += 1;
+                due = args.get(i).map(|s| s.as_str());
+            }
+            "--complete" => {
+                i += 1;
+                complete = args.get(i).map(|s| s.as_str());
+            }
+            _ => {}
+        }
+        i += 1;
+    }
 
     // Read body from stdin
     let mut text = String::new();
@@ -305,14 +333,25 @@ async fn cmd_add(args: &[String]) {
     let client = reqwest::Client::new();
     let token = get_access_token(&config, &client).await;
 
+    let mut body = serde_json::json!({
+        "type": idea_type,
+        "subject": subject,
+        "text": text,
+    });
+    if let Some(v) = id {
+        body["id"] = serde_json::Value::String(v.to_string());
+    }
+    if let Some(v) = due {
+        body["due"] = serde_json::Value::String(v.to_string());
+    }
+    if let Some(v) = complete {
+        body["complete"] = serde_json::Value::String(v.to_string());
+    }
+
     let resp = client
         .post(format!("{}/add", config.base_url))
         .bearer_auth(&token)
-        .json(&serde_json::json!({
-            "type": idea_type,
-            "subject": subject,
-            "text": text,
-        }))
+        .json(&body)
         .send()
         .await
         .unwrap_or_else(|e| {
@@ -328,7 +367,8 @@ async fn cmd_add(args: &[String]) {
 
     if status.is_success() {
         println!(
-            "Added to {} ({})",
+            "Added [{}] to {} ({})",
+            body["id"].as_str().unwrap_or("?"),
             body["file"].as_str().unwrap_or("?"),
             body["date"].as_str().unwrap_or("?")
         );
@@ -347,6 +387,7 @@ async fn cmd_search(args: &[String]) {
     let mut idea_type: Option<&str> = None;
     let mut after: Option<&str> = None;
     let mut before: Option<&str> = None;
+    let mut id: Option<&str> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -386,6 +427,13 @@ async fn cmd_search(args: &[String]) {
                     process::exit(1);
                 }));
             }
+            "--id" => {
+                i += 1;
+                id = Some(args.get(i).map(|s| s.as_str()).unwrap_or_else(|| {
+                    eprintln!("error: --id requires a value");
+                    process::exit(1);
+                }));
+            }
             other => {
                 text = Some(other);
             }
@@ -408,6 +456,9 @@ async fn cmd_search(args: &[String]) {
     }
     if let Some(v) = before {
         body.insert("before".into(), serde_json::Value::String(v.into()));
+    }
+    if let Some(v) = id {
+        body.insert("id".into(), serde_json::Value::String(v.into()));
     }
 
     let config = load_config();
@@ -455,13 +506,20 @@ async fn cmd_search(args: &[String]) {
     for entry in entries {
         let date = entry["date"].as_str().unwrap_or("?");
         let etype = entry["type"].as_str().unwrap_or("?");
+        let eid = entry["id"].as_str().unwrap_or("?");
         let subj = entry["subject"].as_str().unwrap_or("?");
         let text = entry["text"].as_str().unwrap_or("");
 
         println!(
-            "\x1b[1;36m[{}]\x1b[0m \x1b[1;33m{}\x1b[0m \x1b[1m{}\x1b[0m",
-            date, etype, subj
+            "\x1b[1;36m[{}]\x1b[0m \x1b[1;33m{}\x1b[0m \x1b[2m({})\x1b[0m \x1b[1m{}\x1b[0m",
+            date, etype, eid, subj
         );
+        if let Some(due) = entry["due"].as_str() {
+            println!("  \x1b[33mdue: {}\x1b[0m", due);
+        }
+        if let Some(complete) = entry["complete"].as_str() {
+            println!("  \x1b[32mcomplete: {}\x1b[0m", complete);
+        }
         if !text.is_empty() {
             for line in text.lines() {
                 println!("  {}", line);

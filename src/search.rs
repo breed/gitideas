@@ -26,6 +26,7 @@ pub fn search(repo: &std::path::Path, req: &SearchRequest) -> Result<SearchRespo
     let before = req.before.as_deref().map(|d| normalize_date(d, true));
     let subject_query = req.subject.as_deref().map(|s| s.to_lowercase());
     let text_query = req.text.as_deref().map(|s| s.to_lowercase());
+    let id_filter = req.id.as_deref();
 
     let mut results = Vec::new();
     let mut accumulated_bytes: usize = 0;
@@ -44,6 +45,13 @@ pub fn search(repo: &std::path::Path, req: &SearchRequest) -> Result<SearchRespo
         for entry in entries.into_iter().rev() {
             if accumulated_bytes >= MAX_RESULT_BYTES {
                 break;
+            }
+
+            // ID filter
+            if let Some(id) = id_filter {
+                if entry.id != id {
+                    continue;
+                }
             }
 
             // Date range filters
@@ -77,10 +85,13 @@ pub fn search(repo: &std::path::Path, req: &SearchRequest) -> Result<SearchRespo
             accumulated_bytes += entry_size;
 
             results.push(EntryResponse {
+                id: entry.id,
                 idea_type: file_info.idea_type,
                 date: entry.date,
                 subject: entry.subject,
                 text: entry.body,
+                due: entry.due,
+                complete: entry.complete,
             });
         }
     }
