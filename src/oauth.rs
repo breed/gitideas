@@ -66,7 +66,7 @@ pub async fn protected_resource_metadata(
 ) -> Json<serde_json::Value> {
     let url = &state.oauth.server_url;
     Json(serde_json::json!({
-        "resource": url,
+        "resource": format!("{}/mcp", url),
         "authorization_servers": [url],
         "bearer_methods_supported": ["header"],
     }))
