@@ -198,8 +198,9 @@ pub async fn authorize_page(
   <input type="hidden" name="code_challenge" value="{code_challenge}">
   <input type="hidden" name="code_challenge_method" value="{code_challenge_method}">
   <input type="hidden" name="state" value="{state}">
-  <label for="token">Enter your gitideas token:</label>
+  <label for="token">Enter the password from your gitideas.ini config file:</label>
   <input type="password" name="token" id="token" required>
+  <p style="font-size: 0.85em; color: #666;">This is the <code>token</code> value in <code>~/.config/gitideas.ini</code> on the server.</p>
   <button type="submit">Authorize</button>
 </form>
 </body>
@@ -240,7 +241,8 @@ pub async fn authorize_submit(
         return Html(
             r#"<!DOCTYPE html><html><body>
             <h1>Authorization Failed</h1>
-            <p>Invalid token. Please go back and try again.</p>
+            <p>Wrong password. Enter the <code>token</code> value from <code>~/.config/gitideas.ini</code> on the server.</p>
+            <p><a href="javascript:history.back()">Go back and try again</a></p>
             </body></html>"#,
         )
         .into_response();
