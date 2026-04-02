@@ -3,6 +3,18 @@ name = "gitideas"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "gitideas"
+path = "src/main.rs"
+
+[[bin]]
+name = "gitideas-client"
+path = "src/client.rs"
+required-features = ["client"]
+
+[features]
+client = ["reqwest"]
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = "0.8"
@@ -10,6 +22,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
+reqwest = { version = "0.12", features = ["json"], optional = true }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }
