@@ -1,10 +1,12 @@
 use std::path::Path;
 
 use tokio::process::Command;
+use tracing::{debug, info, warn};
 
 use crate::types::AppError;
 
 async fn run_git(repo: &Path, args: &[&str]) -> Result<String, AppError> {
+    debug!(cmd = %args.join(" "), "git");
     let output = Command::new("git")
         .current_dir(repo)
         .args(args)
@@ -38,6 +40,7 @@ async fn git_pull(repo: &Path) -> Result<(), AppError> {
             || stderr.contains("no such remote")
             || stderr.contains("There is no tracking information")
         {
+            debug!("git pull skipped: no remote tracking");
             return Ok(());
         }
         return Err(AppError::GitError(format!("git pull failed: {}", stderr)));
@@ -108,7 +111,7 @@ pub async fn add_with_retry(
 
     let entry_text = format_entry(id, now, subject, due, complete, text);
 
-    for _attempt in 0..5 {
+    for attempt in 0..5u32 {
         git_pull(repo).await?;
 
         let target = target_file(repo, idea_type, now)?;
@@ -122,14 +125,17 @@ pub async fn add_with_retry(
         git_commit(repo, &commit_msg).await?;
 
         match git_push(repo).await {
-            Ok(()) => return Ok((rel_path.clone(), now.to_string(), id.to_string())),
+            Ok(()) => {
+                info!(id, %idea_type, file = %rel_path, "entry added");
+                return Ok((rel_path.clone(), now.to_string(), id.to_string()));
+            }
             Err(e) if is_conflict_error(&e) => {
-                eprintln!("push conflict, retrying...");
+                warn!(attempt, "push conflict, retrying");
                 git_reset_to_remote(repo).await?;
                 continue;
             }
             Err(e) => {
-                eprintln!("push failed (non-conflict): {}", e);
+                warn!(%e, "push failed (non-conflict), keeping local commit");
                 return Ok((rel_path.clone(), now.to_string(), id.to_string()));
             }
         }

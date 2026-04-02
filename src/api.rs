@@ -5,6 +5,8 @@ use axum::extract::State;
 use axum::Json;
 use chrono::Utc;
 
+use tracing::{debug, info};
+
 use crate::search;
 use crate::types::{AddRequest, AddResponse, AppError, SearchRequest, SearchResponse};
 
@@ -37,6 +39,8 @@ pub async fn add_handler(
     )
     .await?;
 
+    info!(id = %id, subject = %req.subject, r#type = %req.idea_type, "add");
+
     Ok(Json(AddResponse {
         ok: true,
         id,
@@ -49,12 +53,14 @@ pub async fn search_handler(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, AppError> {
+    debug!(?req, "search");
+
     let repo_path = state.repo_path.clone();
-    // Search runs without the git lock — reads are safe concurrently
-    // Run blocking file I/O on a blocking thread
     let result = tokio::task::spawn_blocking(move || search::search(&repo_path, &req))
         .await
         .map_err(|e| AppError::GitError(format!("search task failed: {}", e)))??;
+
+    info!(results = result.entries.len(), "search");
 
     Ok(Json(result))
 }

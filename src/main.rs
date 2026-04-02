@@ -17,6 +17,8 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
+use tower_http::trace::TraceLayer;
+use tracing::info;
 
 use api::AppState;
 
@@ -70,12 +72,21 @@ async fn oauth_auth_middleware(
 
 #[tokio::main]
 async fn main() {
+    // Initialize tracing. RUST_LOG controls verbosity:
+    //   RUST_LOG=info (default), RUST_LOG=debug, RUST_LOG=gitideas=debug,tower_http=debug
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,tower_http=info".parse().unwrap()),
+        )
+        .init();
+
     let config_path = dirs::home_dir()
         .expect("could not determine home directory")
         .join(".config/gitideas.ini");
 
     let content = std::fs::read_to_string(&config_path).unwrap_or_else(|e| {
-        eprintln!("error: could not read {}: {}", config_path.display(), e);
+        tracing::error!("could not read {}: {}", config_path.display(), e);
         std::process::exit(1);
     });
 
@@ -112,10 +123,12 @@ async fn main() {
     match git_check {
         Ok(output) if output.status.success() => {}
         _ => {
-            eprintln!("error: {} is not a git repository", repo_path.display());
+            tracing::error!("{} is not a git repository", repo_path.display());
             std::process::exit(1);
         }
     }
+
+    info!(repo = %repo_path.display(), url = %server_url, "configuration loaded");
 
     let state = Arc::new(AppState {
         git_lock: tokio::sync::Mutex::new(()),
@@ -154,15 +167,13 @@ async fn main() {
     let app = Router::new()
         .merge(authed_routes)
         .merge(oauth_routes)
+        .layer(TraceLayer::new_for_http())
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
         .await
         .expect("failed to bind to port");
 
-    eprintln!("gitideas listening on 0.0.0.0:{}", port);
-    eprintln!("  REST API: /add, /search");
-    eprintln!("  MCP:      /mcp");
-    eprintln!("  OAuth:    /oauth/authorize, /oauth/token, /oauth/register");
+    info!(port, "gitideas listening");
     axum::serve(listener, app).await.expect("server error");
 }

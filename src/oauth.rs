@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::{Query, State};
+use tracing::{info, warn};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Json;
@@ -116,6 +117,7 @@ pub async fn register_client(
     };
 
     state.oauth.clients.lock().await.insert(client_id.clone(), client);
+    info!(client_id = %client_id, client_name = %client_name, "oauth client registered");
 
     (
         StatusCode::CREATED,
@@ -234,6 +236,7 @@ pub async fn authorize_submit(
 ) -> Response {
     // Verify the token matches the configured one
     if form.token != state.auth_token {
+        warn!(client_id = %form.client_id, "oauth authorization failed: bad token");
         return Html(
             r#"<!DOCTYPE html><html><body>
             <h1>Authorization Failed</h1>
@@ -252,6 +255,7 @@ pub async fn authorize_submit(
 
     // Generate authorization code
     let code = random_hex(32);
+    info!(client_id = %form.client_id, "oauth authorization granted");
 
     state.oauth.auth_codes.lock().await.insert(
         code.clone(),
@@ -361,6 +365,8 @@ pub async fn token_exchange(
             expires_in,
         },
     );
+
+    info!(client_id = %req.client_id, "oauth token issued");
 
     Json(TokenResponse {
         access_token,
