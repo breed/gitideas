@@ -149,9 +149,9 @@ pub fn parse_entries(content: &str) -> Vec<Entry> {
                         }
                     }
 
-                    match (id, date, subject) {
-                        (Some(id), Some(date), Some(subject)) => ParseState::ReadBody {
-                            id,
+                    match (date, subject) {
+                        (Some(date), Some(subject)) => ParseState::ReadBody {
+                            id: id.unwrap_or_default(),
                             date,
                             subject,
                             due,
@@ -335,9 +335,11 @@ mod tests {
 
     #[test]
     fn test_parse_backward_compat_no_id() {
-        // Old format without id header should not parse (id is required)
+        // Old format without id header should still parse with empty id
         let old = "date: 2026-04-01-14:30\nsubject: Old entry\n-----🔥😀🍕🎸\nbody\n-----🔥😀🍕🎸\n";
         let entries = parse_entries(old);
-        assert_eq!(entries.len(), 0);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, "");
+        assert_eq!(entries[0].subject, "Old entry");
     }
 }

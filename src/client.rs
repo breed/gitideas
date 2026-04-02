@@ -42,15 +42,18 @@ fn load_config() -> Config {
 
     let config = parse_ini(&content);
 
-    let port = config.get("port").expect("config missing 'port'");
-    let host = config
-        .get("host")
-        .map(|s| s.as_str())
-        .unwrap_or("127.0.0.1");
+    let base_url = if let Some(url) = config.get("url") {
+        url.clone()
+    } else {
+        let port = config.get("port").expect("config missing 'port'");
+        let host = config
+            .get("host")
+            .map(|s| s.as_str())
+            .unwrap_or("127.0.0.1");
+        format!("http://{}:{}", host, port)
+    };
 
-    Config {
-        base_url: format!("http://{}:{}", host, port),
-    }
+    Config { base_url }
 }
 
 fn token_cache_path() -> std::path::PathBuf {
