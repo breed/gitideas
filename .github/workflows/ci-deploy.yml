@@ -36,7 +36,7 @@ jobs:
       - name: Run tests
         run: cargo test
 
-      - name: Upload release binary
+      - name: Upload release binaries
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
@@ -59,20 +59,20 @@ jobs:
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
+          # Setup SSH
           mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
           SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
 
-          # Copy binaries
-          scp $SSH_OPTS gitideas gitideas-client $DEPLOY_USER@$DEPLOY_HOST:/tmp/
+          # Find and verify binaries
+          ls -la target/release/gitideas target/release/gitideas-client
+          chmod +x target/release/gitideas target/release/gitideas-client
 
-          # Install and restart
-          ssh $SSH_OPTS $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
-            sudo /usr/bin/mv /tmp/gitideas /usr/local/bin/gitideas
-            sudo /usr/bin/mv /tmp/gitideas-client /usr/local/bin/gitideas-client
-            sudo /usr/bin/chmod +x /usr/local/bin/gitideas /usr/local/bin/gitideas-client
-            sudo /usr/bin/systemctl restart gitideas
-          EOF
+          # Copy binaries to server
+          scp $SSH_OPTS target/release/gitideas target/release/gitideas-client "$DEPLOY_USER@$DEPLOY_HOST:/tmp/"
+
+          # Install and restart service
+          ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" 'sudo /usr/bin/mv /tmp/gitideas /usr/local/bin/gitideas && sudo /usr/bin/mv /tmp/gitideas-client /usr/local/bin/gitideas-client && sudo /usr/bin/chmod +x /usr/local/bin/gitideas /usr/local/bin/gitideas-client && sudo /usr/bin/systemctl restart gitideas'
