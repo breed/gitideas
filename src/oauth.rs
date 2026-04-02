@@ -375,12 +375,9 @@ pub async fn token_exchange(
 pub async fn validate_oauth_token(state: &AppState, token: &str) -> bool {
     let tokens = state.oauth.access_tokens.lock().await;
     if let Some(info) = tokens.get(token) {
-        if info.created.elapsed() < info.expires_in {
-            return true;
-        }
+        return info.created.elapsed() < info.expires_in;
     }
-    // Also accept the raw configured token for backward compatibility
-    token == state.auth_token
+    false
 }
 
 fn html_escape(s: &str) -> String {

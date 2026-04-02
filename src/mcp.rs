@@ -1,49 +1,22 @@
 use std::sync::Arc;
 
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use axum::http::StatusCode;
 use axum::Json;
 use chrono::Utc;
 use serde_json::{json, Value};
 
 use crate::api::AppState;
-use crate::oauth;
 use crate::types::IdeaType;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
 pub async fn mcp_handler(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
-    // Authenticate via OAuth bearer token
-    let token = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "));
-
-    match token {
-        Some(t) if oauth::validate_oauth_token(&state, t).await => {}
-        _ => {
-            let url = &state.oauth.server_url;
-            return (
-                StatusCode::UNAUTHORIZED,
-                [(
-                    "WWW-Authenticate",
-                    format!(
-                        "Bearer resource_metadata=\"{}/.well-known/oauth-protected-resource\"",
-                        url
-                    ),
-                )],
-                "",
-            )
-                .into_response();
-        }
-    }
-
-    // Handle JSON-RPC batch or single request
+    // Auth is handled by the OAuth middleware layer
     if let Some(arr) = body.as_array() {
         // Batch request
         let mut responses = Vec::new();

@@ -14,7 +14,7 @@ use std::sync::Arc;
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::middleware::{self, Next};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
 
@@ -37,26 +37,34 @@ fn parse_ini(content: &str) -> HashMap<String, String> {
     map
 }
 
-async fn rest_auth_middleware(
+async fn oauth_auth_middleware(
     State(state): State<Arc<AppState>>,
     req: Request,
     next: Next,
-) -> Result<Response, StatusCode> {
-    let auth_header = req
+) -> Response {
+    let token = req
         .headers()
         .get("authorization")
-        .and_then(|v| v.to_str().ok());
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
 
-    match auth_header {
-        Some(value) if value.starts_with("Bearer ") => {
-            let token = &value[7..];
-            if token == state.auth_token {
-                Ok(next.run(req).await)
-            } else {
-                Err(StatusCode::UNAUTHORIZED)
-            }
+    match token {
+        Some(t) if oauth::validate_oauth_token(&state, t).await => next.run(req).await,
+        _ => {
+            let url = &state.oauth.server_url;
+            (
+                StatusCode::UNAUTHORIZED,
+                [(
+                    "WWW-Authenticate",
+                    format!(
+                        "Bearer resource_metadata=\"{}/.well-known/oauth-protected-resource\"",
+                        url
+                    ),
+                )],
+                "",
+            )
+                .into_response()
         }
-        _ => Err(StatusCode::UNAUTHORIZED),
     }
 }
 
@@ -116,17 +124,15 @@ async fn main() {
         oauth: oauth::OAuthState::new(server_url),
     });
 
-    // REST API routes (bearer token auth)
-    let rest_routes = Router::new()
+    // REST API and MCP routes — all use OAuth auth
+    let authed_routes = Router::new()
         .route("/add", post(api::add_handler))
         .route("/search", post(api::search_handler))
+        .route("/mcp", post(mcp::mcp_handler))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            rest_auth_middleware,
+            oauth_auth_middleware,
         ));
-
-    // MCP route (OAuth auth handled inside the handler)
-    let mcp_routes = Router::new().route("/mcp", post(mcp::mcp_handler));
 
     // OAuth routes (no auth required — they ARE the auth)
     let oauth_routes = Router::new()
@@ -146,8 +152,7 @@ async fn main() {
         .route("/oauth/token", post(oauth::token_exchange));
 
     let app = Router::new()
-        .merge(rest_routes)
-        .merge(mcp_routes)
+        .merge(authed_routes)
         .merge(oauth_routes)
         .with_state(state);
 

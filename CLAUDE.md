@@ -4,7 +4,7 @@ rest server for searching and adding ideas to a git repository
 
 ## security
 
-requests include a bearer token that is validated before any requests are processed
+all endpoints (REST and MCP) require OAuth 2.1 access tokens. no raw bearer token auth.
 
 ## data files
 
@@ -59,13 +59,11 @@ the server exposes an MCP (model context protocol) endpoint at `POST /mcp` with 
 - `add` - add a new entry (type, subject, text)
 - `search` - search entries (subject, text, after, before, type — all optional)
 
-MCP uses OAuth 2.1 with PKCE for authentication. the OAuth flow:
+all endpoints use OAuth 2.1 with PKCE for authentication. the OAuth flow:
 1. client discovers metadata via `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`
 2. client registers via `POST /oauth/register`
-3. user authorizes via `/oauth/authorize` (enters the configured token)
+3. user authorizes via `/oauth/authorize` (enters the configured token as password)
 4. client exchanges code for access token via `POST /oauth/token`
-
-the configured bearer token also works directly with MCP for backward compatibility.
 
 ## configuration
 
@@ -73,12 +71,14 @@ config is read from `~/.config/gitideas.ini`:
 
 ```ini
 port = 8080
-token = your-bearer-token
+token = your-oauth-password
 repo = /path/to/git/repo
 # optional:
 # host = 127.0.0.1
 # url = https://your-public-url.com
 ```
+
+- `token` is the password users enter in the OAuth authorization page (not used as a direct bearer token)
 
 ## running the code
 
