@@ -17,7 +17,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
-use tower_http::trace::TraceLayer;
+use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::info;
 
 use api::AppState;
@@ -141,7 +141,7 @@ async fn main() {
     let authed_routes = Router::new()
         .route("/add", post(api::add_handler))
         .route("/search", post(api::search_handler))
-        .route("/mcp", post(mcp::mcp_handler))
+        .route("/mcp", post(mcp::mcp_handler).get(mcp::mcp_sse_handler).delete(mcp::mcp_delete_handler))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             oauth_auth_middleware,
@@ -167,7 +167,11 @@ async fn main() {
     let app = Router::new()
         .merge(authed_routes)
         .merge(oauth_routes)
-        .layer(TraceLayer::new_for_http())
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO))
+                .on_response(DefaultOnResponse::new().level(tracing::Level::INFO)),
+        )
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))

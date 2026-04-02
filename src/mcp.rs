@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
@@ -40,6 +41,31 @@ pub async fn mcp_handler(
         }
         None => StatusCode::NO_CONTENT.into_response(),
     }
+}
+
+/// GET /mcp — SSE endpoint for server-initiated messages.
+/// We don't send unsolicited messages, so this just keeps the connection open.
+pub async fn mcp_sse_handler(
+    headers: HeaderMap,
+) -> Sse<futures_core::stream::BoxStream<'static, Result<Event, std::convert::Infallible>>> {
+    use tokio_stream::StreamExt;
+
+    let _session = headers
+        .get("mcp-session-id")
+        .and_then(|v| v.to_str().ok());
+
+    // Keep-alive stream that sends a comment every 30 seconds
+    let stream = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(
+        std::time::Duration::from_secs(30),
+    ))
+    .map(|_| Ok(Event::default().comment("keepalive")));
+
+    Sse::new(Box::pin(stream))
+}
+
+/// DELETE /mcp — session termination. We don't track sessions, so just return 200.
+pub async fn mcp_delete_handler() -> StatusCode {
+    StatusCode::OK
 }
 
 async fn handle_jsonrpc(state: &AppState, req: &Value) -> Option<Value> {
