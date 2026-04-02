@@ -211,7 +211,7 @@ async fn test_add_and_search() {
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["ok"], true);
-    assert!(body["file"].as_str().unwrap().starts_with("IDEA."));
+    assert!(body["file"].as_str().unwrap().starts_with("IDEA/IDEA."));
 
     let resp = client
         .post(&server.url("/search"))

@@ -98,7 +98,7 @@ pub async fn add_with_retry(
     now: &str,
 ) -> Result<(String, String), AppError> {
     use crate::entry::{format_entry, validate_body, validate_subject};
-    use crate::storage::{append_to_file, target_file};
+    use crate::storage::{append_to_file, relative_path, target_file};
 
     validate_subject(subject)?;
     validate_body(text)?;
@@ -111,15 +111,15 @@ pub async fn add_with_retry(
         let target = target_file(repo, idea_type, now)?;
         append_to_file(&target, &entry_text)?;
 
-        let filename = target.file_name().unwrap().to_string_lossy().to_string();
+        let rel_path = relative_path(repo, &target);
 
-        git_add(repo, &filename).await?;
+        git_add(repo, &rel_path).await?;
 
         let commit_msg = format!("{}: {}", idea_type, &subject[..subject.len().min(50)]);
         git_commit(repo, &commit_msg).await?;
 
         match git_push(repo).await {
-            Ok(()) => return Ok((filename.clone(), now.to_string())),
+            Ok(()) => return Ok((rel_path.clone(), now.to_string())),
             Err(e) if is_conflict_error(&e) => {
                 eprintln!("push conflict, retrying...");
                 git_reset_to_remote(repo).await?;
@@ -127,7 +127,7 @@ pub async fn add_with_retry(
             }
             Err(e) => {
                 eprintln!("push failed (non-conflict): {}", e);
-                return Ok((filename.clone(), now.to_string()));
+                return Ok((rel_path.clone(), now.to_string()));
             }
         }
     }

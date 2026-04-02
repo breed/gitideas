@@ -8,7 +8,8 @@ all endpoints (REST and MCP) require OAuth 2.1 access tokens. no raw bearer toke
 
 ## data files
 
-- files are named TYPE.DATE where TYPE can be TODO, IDEA, MEMORY and DATE has the format YYYY-MM-DD-hh:mm and is the date of the first entry
+- each type has its own subdirectory: `IDEA/`, `TODO/`, `MEMORY/`
+- files are named TYPE.DATE where TYPE can be TODO, IDEA, MEMORY and DATE has the format YYYY-MM-DD-hh:mm and is the date of the first entry (e.g., `IDEA/IDEA.2026-04-01-14:30`)
 - changes are written to the end of the file
 - only UTF-8 characters allowed
 - markdown is preferred for formatted text

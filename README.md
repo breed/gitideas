@@ -143,7 +143,7 @@ To connect from an MCP client, point it at `http://host:port/mcp`. The client wi
 
 ## Storage Format
 
-Entries are stored in files named `TYPE.YYYY-MM-DD-hh:mm` (e.g., `IDEA.2026-04-01-14:30`). A new file is created when the current one exceeds 100KB.
+Each document type is stored in its own subdirectory (`IDEA/`, `TODO/`, `MEMORY/`). Files are named `TYPE.YYYY-MM-DD-hh:mm` (e.g., `IDEA/IDEA.2026-04-01-14:30`). A new file is created when the current one exceeds 100KB.
 
 Each entry:
 
