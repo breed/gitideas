@@ -12,6 +12,7 @@ pub struct AppState {
     pub git_lock: tokio::sync::Mutex<()>,
     pub auth_token: String,
     pub repo_path: PathBuf,
+    pub oauth: crate::oauth::OAuthState,
 }
 
 pub async fn add_handler(

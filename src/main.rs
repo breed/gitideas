@@ -1,6 +1,8 @@
 mod api;
 mod entry;
 mod git;
+mod mcp;
+mod oauth;
 mod search;
 mod storage;
 mod types;
@@ -13,7 +15,7 @@ use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::middleware::{self, Next};
 use axum::response::Response;
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::Router;
 
 use api::AppState;
@@ -25,7 +27,6 @@ fn parse_ini(content: &str) -> HashMap<String, String> {
         if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
             continue;
         }
-        // Skip section headers like [gitideas]
         if line.starts_with('[') {
             continue;
         }
@@ -36,7 +37,7 @@ fn parse_ini(content: &str) -> HashMap<String, String> {
     map
 }
 
-async fn auth_middleware(
+async fn rest_auth_middleware(
     State(state): State<Arc<AppState>>,
     req: Request,
     next: Next,
@@ -83,11 +84,17 @@ async fn main() {
         .expect("config missing 'token'")
         .to_string();
 
-    let repo_path = PathBuf::from(
-        config
-            .get("repo")
-            .expect("config missing 'repo'"),
-    );
+    let repo_path = PathBuf::from(config.get("repo").expect("config missing 'repo'"));
+
+    let host = config
+        .get("host")
+        .map(|s| s.as_str())
+        .unwrap_or("127.0.0.1");
+
+    let server_url = config
+        .get("url")
+        .cloned()
+        .unwrap_or_else(|| format!("http://{}:{}", host, port));
 
     // Verify the repo path is a git repository
     let git_check = std::process::Command::new("git")
@@ -106,12 +113,42 @@ async fn main() {
         git_lock: tokio::sync::Mutex::new(()),
         auth_token: token,
         repo_path,
+        oauth: oauth::OAuthState::new(server_url),
     });
 
-    let app = Router::new()
+    // REST API routes (bearer token auth)
+    let rest_routes = Router::new()
         .route("/add", post(api::add_handler))
         .route("/search", post(api::search_handler))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            rest_auth_middleware,
+        ));
+
+    // MCP route (OAuth auth handled inside the handler)
+    let mcp_routes = Router::new().route("/mcp", post(mcp::mcp_handler));
+
+    // OAuth routes (no auth required — they ARE the auth)
+    let oauth_routes = Router::new()
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(oauth::protected_resource_metadata),
+        )
+        .route(
+            "/.well-known/oauth-authorization-server",
+            get(oauth::authorization_server_metadata),
+        )
+        .route("/oauth/register", post(oauth::register_client))
+        .route(
+            "/oauth/authorize",
+            get(oauth::authorize_page).post(oauth::authorize_submit),
+        )
+        .route("/oauth/token", post(oauth::token_exchange));
+
+    let app = Router::new()
+        .merge(rest_routes)
+        .merge(mcp_routes)
+        .merge(oauth_routes)
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
@@ -119,5 +156,8 @@ async fn main() {
         .expect("failed to bind to port");
 
     eprintln!("gitideas listening on 0.0.0.0:{}", port);
+    eprintln!("  REST API: /add, /search");
+    eprintln!("  MCP:      /mcp");
+    eprintln!("  OAuth:    /oauth/authorize, /oauth/token, /oauth/register");
     axum::serve(listener, app).await.expect("server error");
 }
