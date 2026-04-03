@@ -244,7 +244,7 @@ fn open_browser(url: &str) -> Result<(), std::io::Error> {
 fn usage() -> ! {
     eprintln!("Usage:");
     eprintln!("  gitideas-client add <type> <subject> [options]");
-    eprintln!("    type: IDEA, TODO, or MEMORY");
+    eprintln!("    type: IDEA, TODO, MEMORY, or NOTES");
     eprintln!("    reads body text from stdin");
     eprintln!("    --id <id>            set entry ID (auto-generated if omitted)");
     eprintln!("    --due <date>         due date (YYYY-MM-DD or YYYY-MM-DD-hh:mm)");
@@ -253,7 +253,7 @@ fn usage() -> ! {
     eprintln!("  gitideas-client search [options]");
     eprintln!("    --subject <query>    search subjects");
     eprintln!("    --text <query>       search subjects and body text");
-    eprintln!("    --type <type>        filter by type (IDEA, TODO, MEMORY)");
+    eprintln!("    --type <type>        filter by type (IDEA, TODO, MEMORY, NOTES)");
     eprintln!("    --after <date>       entries after date (YYYY-MM-DD or YYYY-MM-DD-hh:mm)");
     eprintln!("    --before <date>      entries before date");
     eprintln!("    --id <id>            filter by entry ID");
@@ -283,9 +283,9 @@ async fn cmd_add(args: &[String]) {
 
     let idea_type = &args[0];
     match idea_type.as_str() {
-        "IDEA" | "TODO" | "MEMORY" => {}
+        "IDEA" | "TODO" | "MEMORY" | "NOTES" => {}
         _ => {
-            eprintln!("error: type must be IDEA, TODO, or MEMORY");
+            eprintln!("error: type must be IDEA, TODO, MEMORY, or NOTES");
             process::exit(1);
         }
     }

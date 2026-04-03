@@ -9,6 +9,7 @@ pub enum IdeaType {
     Todo,
     Idea,
     Memory,
+    Notes,
 }
 
 impl fmt::Display for IdeaType {
@@ -17,6 +18,7 @@ impl fmt::Display for IdeaType {
             IdeaType::Todo => write!(f, "TODO"),
             IdeaType::Idea => write!(f, "IDEA"),
             IdeaType::Memory => write!(f, "MEMORY"),
+            IdeaType::Notes => write!(f, "NOTES"),
         }
     }
 }
@@ -27,6 +29,7 @@ impl IdeaType {
             "TODO" => Some(IdeaType::Todo),
             "IDEA" => Some(IdeaType::Idea),
             "MEMORY" => Some(IdeaType::Memory),
+            "NOTES" => Some(IdeaType::Notes),
             _ => None,
         }
     }

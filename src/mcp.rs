@@ -121,7 +121,7 @@ fn handle_tools_list() -> Value {
                     "properties": {
                         "type": {
                             "type": "string",
-                            "enum": ["IDEA", "TODO", "MEMORY"],
+                            "enum": ["IDEA", "TODO", "MEMORY", "NOTES"],
                             "description": "The type of entry"
                         },
                         "subject": {
@@ -165,7 +165,7 @@ fn handle_tools_list() -> Value {
                         },
                         "type": {
                             "type": "string",
-                            "enum": ["IDEA", "TODO", "MEMORY"],
+                            "enum": ["IDEA", "TODO", "MEMORY", "NOTES"],
                             "description": "Filter by entry type"
                         },
                         "after": {
@@ -220,7 +220,7 @@ async fn tool_add(state: &AppState, args: &Value) -> Result<Value, Value> {
         .ok_or_else(|| jsonrpc_error(-32602, "missing 'text' argument"))?;
 
     let idea_type = IdeaType::from_str(type_str)
-        .ok_or_else(|| jsonrpc_error(-32602, "type must be IDEA, TODO, or MEMORY"))?;
+        .ok_or_else(|| jsonrpc_error(-32602, "type must be IDEA, TODO, MEMORY, or NOTES"))?;
 
     let id = args
         .get("id")

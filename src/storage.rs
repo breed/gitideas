@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 const MAX_FILE_SIZE: u64 = 100 * 1024; // 100KB
 
-const ALL_TYPES: &[IdeaType] = &[IdeaType::Idea, IdeaType::Todo, IdeaType::Memory];
+const ALL_TYPES: &[IdeaType] = &[IdeaType::Idea, IdeaType::Todo, IdeaType::Memory, IdeaType::Notes];
 
 /// A data file with its parsed type and date components.
 #[derive(Debug)]
