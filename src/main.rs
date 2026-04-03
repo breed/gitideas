@@ -18,7 +18,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
-use tracing::info;
+use tracing::{info, warn};
 
 use api::AppState;
 
@@ -53,6 +53,12 @@ async fn oauth_auth_middleware(
     match token {
         Some(t) if oauth::validate_oauth_token(&state, t).await => next.run(req).await,
         _ => {
+            warn!(
+                token_present = token.is_some(),
+                token_has_colon = token.map(|t| t.contains(':')).unwrap_or(false),
+                token_len = token.map(|t| t.len()).unwrap_or(0),
+                "auth rejected"
+            );
             let url = &state.oauth.server_url;
             (
                 StatusCode::UNAUTHORIZED,

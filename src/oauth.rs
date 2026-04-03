@@ -364,7 +364,7 @@ pub async fn token_exchange(
     Json(TokenResponse {
         access_token,
         token_type: "Bearer".to_string(),
-        expires_in: 0, // no expiration
+        expires_in: 31536000, // 1 year (tokens are stateless HMAC, no real expiry)
     })
     .into_response()
 }
