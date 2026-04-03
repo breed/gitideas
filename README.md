@@ -8,7 +8,7 @@ A REST and MCP server that stores ideas, todos, and memories in a git repository
 - **MCP interface** (Model Context Protocol) so AI assistants can read and write your ideas
 - **OAuth 2.1 with PKCE** on all endpoints — no raw bearer tokens
 - **Git-backed storage** with automatic conflict retry (pull, append, commit, push)
-- **Three entry types**: IDEA, TODO, MEMORY
+- **Four entry types**: IDEA, TODO, MEMORY, NOTES
 - **Full-text search** by subject, body, date range, and type
 
 ## Setup
@@ -67,6 +67,7 @@ The `gitideas-client` CLI handles this automatically, opening a browser on first
 # Add an entry (reads body from stdin)
 echo "Details here" | gitideas-client add IDEA "My idea subject"
 gitideas-client add TODO "Fix the login bug"
+echo "Discussed roadmap priorities" | gitideas-client add NOTES "Team meeting 2026-04-02"
 
 # Search
 gitideas-client search                            # all entries
@@ -143,7 +144,7 @@ To connect from an MCP client, point it at `http://host:port/mcp`. The client wi
 
 ## Storage Format
 
-Each document type is stored in its own subdirectory (`IDEA/`, `TODO/`, `MEMORY/`). Files are named `TYPE.YYYY-MM-DD-hh:mm` (e.g., `IDEA/IDEA.2026-04-01-14:30`). A new file is created when the current one exceeds 100KB.
+Each document type is stored in its own subdirectory (`IDEA/`, `TODO/`, `MEMORY/`, `NOTES/`). Files are named `TYPE.YYYY-MM-DD-hh:mm` (e.g., `IDEA/IDEA.2026-04-01-14:30`). A new file is created when the current one exceeds 100KB.
 
 Each entry:
 
