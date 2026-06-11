@@ -74,12 +74,28 @@ fn save_cached_token(token: &str) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::write(&path, token);
-    // Restrict permissions on the token file
+
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        // Create with 0600 from the start so the token is never momentarily
+        // world-readable (mode only applies to newly created files)...
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+        {
+            let _ = f.write_all(token.as_bytes());
+        }
+        // ...and enforce 0600 in case the file already existed with looser perms.
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = std::fs::write(&path, token);
     }
 }
 

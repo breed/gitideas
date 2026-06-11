@@ -9,6 +9,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Json;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use chrono::Utc;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use hmac::Mac;
@@ -16,6 +17,17 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
 use crate::api::AppState;
+
+/// How long an issued access token stays valid. Tokens are stateless HMACs, so
+/// this is enforced via an embedded issued-at timestamp rather than stored state.
+const ACCESS_TOKEN_TTL_SECS: i64 = 7_776_000; // 90 days
+/// Authorization codes are short-lived (single use, exchanged within minutes).
+const AUTH_CODE_TTL: Duration = Duration::from_secs(300); // 5 minutes
+/// Registered clients are only needed for the brief authorize→token window.
+const CLIENT_TTL: Duration = Duration::from_secs(3600); // 1 hour
+/// Hard caps so unauthenticated registration can't exhaust memory.
+const MAX_CLIENTS: usize = 10_000;
+const MAX_AUTH_CODES: usize = 10_000;
 
 // --- OAuth state stored in AppState ---
 
@@ -33,11 +45,25 @@ impl OAuthState {
             server_url,
         }
     }
+
+    /// Drop expired auth codes and stale client registrations. Called
+    /// opportunistically on each OAuth request to bound memory usage.
+    async fn prune_expired(&self) {
+        self.auth_codes
+            .lock()
+            .await
+            .retain(|_, c| c.created.elapsed() <= AUTH_CODE_TTL);
+        self.clients
+            .lock()
+            .await
+            .retain(|_, c| c.created.elapsed() <= CLIENT_TTL);
+    }
 }
 
 pub struct RegisteredClient {
     pub client_name: String,
     pub redirect_uris: Vec<String>,
+    pub created: Instant,
 }
 
 pub struct AuthCode {
@@ -102,15 +128,28 @@ pub async fn register_client(
         );
     }
 
+    state.oauth.prune_expired().await;
+
     let client_id = random_hex(16);
     let client_name = req.client_name.unwrap_or_else(|| "MCP Client".to_string());
 
     let client = RegisteredClient {
         client_name: client_name.clone(),
         redirect_uris: req.redirect_uris.clone(),
+        created: Instant::now(),
     };
 
-    state.oauth.clients.lock().await.insert(client_id.clone(), client);
+    {
+        let mut clients = state.oauth.clients.lock().await;
+        if clients.len() >= MAX_CLIENTS {
+            warn!("oauth client registration rejected: too many clients");
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "too_many_clients"})),
+            );
+        }
+        clients.insert(client_id.clone(), client);
+    }
     info!(client_id = %client_id, client_name = %client_name, "oauth client registered");
 
     (
@@ -242,10 +281,18 @@ pub async fn authorize_submit(
         .into_response();
     }
 
-    // Verify client exists
+    state.oauth.prune_expired().await;
+
+    // Verify client exists and that the redirect_uri is one it registered.
+    // This must be re-checked here (not only on the GET page) because the POST
+    // form fields are client-controlled.
     let clients = state.oauth.clients.lock().await;
-    if !clients.contains_key(&form.client_id) {
-        return (StatusCode::BAD_REQUEST, "unknown client_id").into_response();
+    let client = match clients.get(&form.client_id) {
+        Some(c) => c,
+        None => return (StatusCode::BAD_REQUEST, "unknown client_id").into_response(),
+    };
+    if !client.redirect_uris.contains(&form.redirect_uri) {
+        return (StatusCode::BAD_REQUEST, "redirect_uri not registered").into_response();
     }
     drop(clients);
 
@@ -253,15 +300,22 @@ pub async fn authorize_submit(
     let code = random_hex(32);
     info!(client_id = %form.client_id, "oauth authorization granted");
 
-    state.oauth.auth_codes.lock().await.insert(
-        code.clone(),
-        AuthCode {
-            client_id: form.client_id,
-            redirect_uri: form.redirect_uri.clone(),
-            code_challenge: form.code_challenge,
-            created: Instant::now(),
-        },
-    );
+    {
+        let mut codes = state.oauth.auth_codes.lock().await;
+        if codes.len() >= MAX_AUTH_CODES {
+            warn!("oauth authorization rejected: too many pending codes");
+            return (StatusCode::SERVICE_UNAVAILABLE, "too many pending codes").into_response();
+        }
+        codes.insert(
+            code.clone(),
+            AuthCode {
+                client_id: form.client_id,
+                redirect_uri: form.redirect_uri.clone(),
+                code_challenge: form.code_challenge,
+                created: Instant::now(),
+            },
+        );
+    }
 
     // Redirect back to client
     let mut redirect_url = form.redirect_uri;
@@ -305,6 +359,8 @@ pub async fn token_exchange(
         )
             .into_response();
     }
+
+    state.oauth.prune_expired().await;
 
     // Look up and remove the authorization code (single use)
     let auth_code = state.oauth.auth_codes.lock().await.remove(&req.code);
@@ -350,21 +406,24 @@ pub async fn token_exchange(
             .into_response();
     }
 
-    // Issue access token: HMAC-SHA256(config_token, random_nonce)
-    // This can be validated against the config token without storing state.
+    // Issue access token: HMAC-SHA256(config_token, "nonce:issued_at").
+    // The issued-at timestamp is part of the signed payload, so it can be
+    // validated statelessly and the token expires after ACCESS_TOKEN_TTL_SECS.
     let nonce = random_hex(16);
+    let issued_at = Utc::now().timestamp();
+    let message = format!("{}:{}", nonce, issued_at);
     let mut mac = hmac::Hmac::<Sha256>::new_from_slice(state.auth_token.as_bytes())
         .expect("HMAC key");
-    mac.update(nonce.as_bytes());
+    mac.update(message.as_bytes());
     let sig = hex::encode(mac.finalize().into_bytes());
-    let access_token = format!("{}:{}", nonce, sig);
+    let access_token = format!("{}:{}", message, sig);
 
     info!(client_id = %req.client_id, "oauth token issued");
 
     Json(TokenResponse {
         access_token,
         token_type: "Bearer".to_string(),
-        expires_in: 31536000, // 1 year (tokens are stateless HMAC, no real expiry)
+        expires_in: ACCESS_TOKEN_TTL_SECS as u64,
     })
     .into_response()
 }
@@ -372,14 +431,34 @@ pub async fn token_exchange(
 // --- Token Validation (used by MCP middleware) ---
 
 pub async fn validate_oauth_token(state: &AppState, token: &str) -> bool {
-    let Some((nonce, sig)) = token.split_once(':') else {
+    // Token format: "nonce:issued_at:sig_hex"
+    let mut parts = token.splitn(3, ':');
+    let (Some(nonce), Some(issued_at_str), Some(sig_hex), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
         return false;
     };
+
+    let Ok(issued_at) = issued_at_str.parse::<i64>() else {
+        return false;
+    };
+
+    // Reject expired (or not-yet-valid, e.g. clock skew / forged future) tokens.
+    let now = Utc::now().timestamp();
+    if now < issued_at || now - issued_at > ACCESS_TOKEN_TTL_SECS {
+        return false;
+    }
+
+    let Ok(sig_bytes) = hex::decode(sig_hex) else {
+        return false;
+    };
+
+    let message = format!("{}:{}", nonce, issued_at);
     let mut mac = hmac::Hmac::<Sha256>::new_from_slice(state.auth_token.as_bytes())
         .expect("HMAC key");
-    mac.update(nonce.as_bytes());
-    let expected = hex::encode(mac.finalize().into_bytes());
-    expected == sig
+    mac.update(message.as_bytes());
+    // Constant-time tag comparison (avoids the timing side channel of `==`).
+    mac.verify_slice(&sig_bytes).is_ok()
 }
 
 fn html_escape(s: &str) -> String {

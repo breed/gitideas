@@ -363,7 +363,7 @@ async fn test_mcp_requires_auth() {
         .post(&server.url("/mcp"))
         .json(&serde_json::json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}
+            "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}
         }))
         .send()
         .await
@@ -378,7 +378,7 @@ async fn test_mcp_requires_auth() {
         .bearer_auth(&server.token)
         .json(&serde_json::json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}
+            "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}
         }))
         .send()
         .await
@@ -397,7 +397,7 @@ async fn test_mcp_with_oauth_token() {
         .bearer_auth(&token)
         .json(&serde_json::json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}
+            "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}
         }))
         .send()
         .await
@@ -502,7 +502,7 @@ async fn test_oauth_full_flow() {
         .bearer_auth(&token)
         .json(&serde_json::json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}
+            "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}
         }))
         .send()
         .await

@@ -87,6 +87,7 @@ pub struct SearchResponse {
 #[derive(Debug)]
 pub enum AppError {
     InvalidSubject(String),
+    InvalidField(String),
     BodyTooLarge,
     GitError(String),
     ConflictRetryExhausted,
@@ -97,6 +98,7 @@ impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AppError::InvalidSubject(msg) => write!(f, "{}", msg),
+            AppError::InvalidField(msg) => write!(f, "{}", msg),
             AppError::BodyTooLarge => write!(f, "body exceeds 1MB"),
             AppError::GitError(msg) => write!(f, "git error: {}", msg),
             AppError::ConflictRetryExhausted => {
@@ -116,7 +118,9 @@ impl From<std::io::Error> for AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = match &self {
-            AppError::InvalidSubject(_) | AppError::BodyTooLarge => StatusCode::BAD_REQUEST,
+            AppError::InvalidSubject(_) | AppError::InvalidField(_) | AppError::BodyTooLarge => {
+                StatusCode::BAD_REQUEST
+            }
             AppError::ConflictRetryExhausted => StatusCode::CONFLICT,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };

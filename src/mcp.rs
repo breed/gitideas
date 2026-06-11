@@ -11,14 +11,14 @@ use serde_json::{json, Value};
 use crate::api::AppState;
 use crate::types::IdeaType;
 
-const PROTOCOL_VERSION: &str = "2024-11-05";
+const PROTOCOL_VERSION: &str = "2025-03-26";
 
 pub async fn mcp_handler(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
 ) -> Response {
     // Auth is handled by the OAuth middleware layer
-    if let Some(arr) = body.as_array() {
+    let mut response = if let Some(arr) = body.as_array() {
         let mut responses = Vec::new();
         for req in arr {
             if let Some(resp) = handle_jsonrpc(&state, req).await {
@@ -26,21 +26,20 @@ pub async fn mcp_handler(
             }
         }
         if responses.is_empty() {
-            return StatusCode::NO_CONTENT.into_response();
+            StatusCode::NO_CONTENT.into_response()
+        } else {
+            Json(Value::Array(responses)).into_response()
         }
-        return Json(Value::Array(responses)).into_response();
-    }
-
-    match handle_jsonrpc(&state, &body).await {
-        Some(resp) => {
-            let mut response = Json(resp).into_response();
-            response
-                .headers_mut()
-                .insert("Mcp-Session-Id", "gitideas-session".parse().unwrap());
-            response
+    } else {
+        match handle_jsonrpc(&state, &body).await {
+            Some(resp) => Json(resp).into_response(),
+            None => StatusCode::NO_CONTENT.into_response(),
         }
-        None => StatusCode::NO_CONTENT.into_response(),
-    }
+    };
+    response
+        .headers_mut()
+        .insert("Mcp-Session-Id", "gitideas-session".parse().unwrap());
+    response
 }
 
 /// GET /mcp — SSE endpoint for server-initiated messages.

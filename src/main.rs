@@ -180,10 +180,10 @@ async fn main() {
         )
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
+    let listener = tokio::net::TcpListener::bind((host, port))
         .await
         .expect("failed to bind to port");
 
-    info!(port, "gitideas listening");
+    info!(host, port, "gitideas listening");
     axum::serve(listener, app).await.expect("server error");
 }

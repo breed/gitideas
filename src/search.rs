@@ -20,6 +20,15 @@ fn normalize_date(date: &str, is_before: bool) -> String {
 }
 
 pub fn search(repo: &std::path::Path, req: &SearchRequest) -> Result<SearchResponse, AppError> {
+    use crate::entry::validate_date;
+
+    if let Some(a) = req.after.as_deref() {
+        validate_date(a)?;
+    }
+    if let Some(b) = req.before.as_deref() {
+        validate_date(b)?;
+    }
+
     let files = list_data_files(repo, req.idea_type)?;
 
     let after = req.after.as_deref().map(|d| normalize_date(d, false));

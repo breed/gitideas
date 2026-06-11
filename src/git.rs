@@ -63,6 +63,19 @@ async fn git_push(repo: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Truncate `s` to at most `max_bytes`, never splitting a UTF-8 character.
+/// Plain byte slicing (`&s[..n]`) panics when `n` lands inside a multibyte char.
+fn truncate_on_char_boundary(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 fn is_conflict_error(err: &AppError) -> bool {
     match err {
         AppError::GitError(msg) => {
@@ -103,11 +116,18 @@ pub async fn add_with_retry(
     complete: Option<&str>,
     now: &str,
 ) -> Result<(String, String, String), AppError> {
-    use crate::entry::{format_entry, validate_body, validate_subject};
+    use crate::entry::{format_entry, validate_body, validate_date, validate_id, validate_subject};
     use crate::storage::{append_to_file, relative_path, target_file};
 
     validate_subject(subject)?;
     validate_body(text)?;
+    validate_id(id)?;
+    if let Some(d) = due {
+        validate_date(d)?;
+    }
+    if let Some(c) = complete {
+        validate_date(c)?;
+    }
 
     let entry_text = format_entry(id, now, subject, due, complete, text);
 
@@ -121,7 +141,7 @@ pub async fn add_with_retry(
 
         git_add(repo, &rel_path).await?;
 
-        let commit_msg = format!("{}: {}", idea_type, &subject[..subject.len().min(50)]);
+        let commit_msg = format!("{}: {}", idea_type, truncate_on_char_boundary(subject, 50));
         git_commit(repo, &commit_msg).await?;
 
         match git_push(repo).await {
@@ -142,4 +162,28 @@ pub async fn add_with_retry(
     }
 
     Err(AppError::ConflictRetryExhausted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_multibyte_no_panic() {
+        // Reproduces the commit-message panic: 13 emoji = 52 bytes, byte 50
+        // lands inside the 13th char. Plain `&s[..50]` would panic here.
+        let s = "😀".repeat(13);
+        assert_eq!(s.len(), 52);
+        let t = truncate_on_char_boundary(&s, 50);
+        assert!(s.starts_with(t));
+        assert!(t.len() <= 50);
+        assert_eq!(t.chars().count(), 12); // 12 emoji = 48 bytes
+    }
+
+    #[test]
+    fn test_truncate_ascii() {
+        assert_eq!(truncate_on_char_boundary("hello world", 5), "hello");
+        assert_eq!(truncate_on_char_boundary("hi", 50), "hi");
+        assert_eq!(truncate_on_char_boundary("", 50), "");
+    }
 }

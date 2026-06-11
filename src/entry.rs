@@ -6,6 +6,7 @@ use crate::types::AppError;
 
 const MAX_SUBJECT_BYTES: usize = 120;
 const MAX_BODY_BYTES: usize = 1_048_576; // 1MB
+const MAX_ID_BYTES: usize = 128;
 
 const EMOJI_POOL: &[char] = &[
     '🔥', '😀', '🍕', '🎸', '🌈', '🚀', '💡', '🎯', '🌟', '🎪', '🏔', '🌊', '🦀', '🎭',
@@ -59,6 +60,65 @@ pub fn validate_body(text: &str) -> Result<(), AppError> {
         return Err(AppError::BodyTooLarge);
     }
     Ok(())
+}
+
+/// Reject control characters (especially newlines) in the id so it cannot be
+/// used to inject extra header lines into the on-disk entry format.
+pub fn validate_id(id: &str) -> Result<(), AppError> {
+    if id.len() > MAX_ID_BYTES {
+        return Err(AppError::InvalidField(format!(
+            "id exceeds {} bytes",
+            MAX_ID_BYTES
+        )));
+    }
+    for byte in id.as_bytes() {
+        if *byte < 0x20 {
+            return Err(AppError::InvalidField(
+                "id contains control characters".to_string(),
+            ));
+        }
+    }
+    for ch in id.chars() {
+        if ch == '\u{7F}' || ('\u{80}'..='\u{9F}').contains(&ch) {
+            return Err(AppError::InvalidField(
+                "id contains control characters".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Validate a date is exactly `YYYY-MM-DD` or `YYYY-MM-DD-hh:mm`. Operates on
+/// bytes so multibyte input is rejected (no panic on non-ASCII), and rejects
+/// any embedded newlines that could inject content into the entry header.
+pub fn validate_date(date: &str) -> Result<(), AppError> {
+    fn digits(b: &[u8]) -> bool {
+        b.iter().all(u8::is_ascii_digit)
+    }
+    let b = date.as_bytes();
+    let valid = match b.len() {
+        10 => digits(&b[0..4]) && b[4] == b'-' && digits(&b[5..7]) && b[7] == b'-' && digits(&b[8..10]),
+        16 => {
+            digits(&b[0..4])
+                && b[4] == b'-'
+                && digits(&b[5..7])
+                && b[7] == b'-'
+                && digits(&b[8..10])
+                && b[10] == b'-'
+                && digits(&b[11..13])
+                && b[13] == b':'
+                && digits(&b[14..16])
+        }
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(AppError::InvalidField(format!(
+            "invalid date '{}', expected YYYY-MM-DD or YYYY-MM-DD-hh:mm",
+            date
+        )))
+    }
 }
 
 pub fn generate_delimiter(body: &str) -> String {
@@ -230,6 +290,28 @@ mod tests {
         assert!(validate_subject("hello\nworld").is_err());
         assert!(validate_subject("hello\rworld").is_err());
         assert!(validate_subject("hello\x00world").is_err());
+    }
+
+    #[test]
+    fn test_validate_id_rejects_control_chars() {
+        // Reproduces header-injection: a newline in `id` would inject an extra
+        // header line into the on-disk entry.
+        assert!(validate_id("2026\nsubject: forged").is_err());
+        assert!(validate_id("ok\tnope").is_err());
+        assert!(validate_id(&"x".repeat(MAX_ID_BYTES + 1)).is_err());
+        assert!(validate_id("aB3-_normalID").is_ok());
+    }
+
+    #[test]
+    fn test_validate_date_format() {
+        assert!(validate_date("2026-05-01").is_ok());
+        assert!(validate_date("2026-05-01-14:30").is_ok());
+        // Reproduces header-injection via due/complete newline.
+        assert!(validate_date("2026-05-01\ndate: 2099-01-01").is_err());
+        assert!(validate_date("not-a-date").is_err());
+        assert!(validate_date("2026/05/01").is_err());
+        assert!(validate_date("2026-05-01-14:30:00").is_err());
+        assert!(validate_date("😀😀😀😀😀😀😀😀").is_err());
     }
 
     #[test]
