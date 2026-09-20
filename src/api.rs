@@ -15,12 +15,18 @@ pub struct AppState {
     pub auth_token: String,
     pub repo_path: PathBuf,
     pub oauth: crate::oauth::OAuthState,
+    pub google: Option<crate::web::GoogleConfig>,
 }
 
 pub async fn add_handler(
     State(state): State<Arc<AppState>>,
     Json(req): Json<AddRequest>,
 ) -> Result<Json<AddResponse>, AppError> {
+    do_add(&state, req).await.map(Json)
+}
+
+/// Shared add logic used by the REST endpoint and the web dialog.
+pub async fn do_add(state: &AppState, req: AddRequest) -> Result<AddResponse, AppError> {
     let now = Utc::now().format("%Y-%m-%d-%H:%M").to_string();
     let id = req.id.unwrap_or_else(crate::entry::generate_id);
 
@@ -41,12 +47,12 @@ pub async fn add_handler(
 
     info!(id = %id, subject = %req.subject, r#type = %req.idea_type, "add");
 
-    Ok(Json(AddResponse {
+    Ok(AddResponse {
         ok: true,
         id,
         file,
         date,
-    }))
+    })
 }
 
 pub async fn search_handler(

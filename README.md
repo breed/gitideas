@@ -10,6 +10,8 @@ A REST and MCP server that stores ideas, todos, and memories in a git repository
 - **Git-backed storage** with automatic conflict retry (pull, append, commit, push)
 - **Four entry types**: IDEA, TODO, MEMORY, NOTES
 - **Full-text search** by subject, body, date range, and type
+- **Web dialog** at `/` behind Google sign-in: drag and drop or paste text and images to add an entry
+- **robots.txt** that tells crawlers to stay away
 
 ## Setup
 
@@ -37,6 +39,11 @@ repo = /path/to/your/git/repo
 | `repo` | yes | Path to a git repository for storing entries |
 | `host` | no | Bind address (default: `127.0.0.1`) |
 | `url` | no | Public URL if behind a reverse proxy |
+| `google_client_id` | no | Google OAuth client ID (enables the web dialog) |
+| `google_client_secret` | no | Google OAuth client secret |
+| `email` | no | The only Google account allowed to use the web dialog |
+
+The three Google keys must be set together. Create a "Web application" OAuth client in the Google Cloud console and add `<url>/auth/google/callback` as an authorized redirect URI, where `<url>` is the `url` config value (or `http://host:port`).
 
 The `repo` path must be an initialized git repository. To create one:
 
@@ -60,6 +67,12 @@ All endpoints require OAuth 2.1 access tokens. The flow:
 4. Client exchanges the authorization code for an access token (PKCE S256)
 
 The `gitideas-client` CLI handles this automatically, opening a browser on first use and caching the token in `~/.config/gitideas-oauth-token`.
+
+## Web Dialog
+
+`GET /` shows a "Sign in with Google" button. After signing in with the configured `email`, a dialog lets you pick the type (IDEA, TODO, MEMORY, NOTES), enter a subject, and type, paste, or drop content. Dropped or pasted images are embedded as base64 markdown; dropped text files are appended. Any other Google account gets a `go away!` page and the rejected email is logged.
+
+The dialog posts to `POST /web/add`, which is guarded by an HttpOnly session cookie rather than an OAuth token. `GET /robots.txt` disallows all crawlers.
 
 ## CLI Client
 
@@ -162,7 +175,7 @@ The emoji delimiter is chosen to not appear in the body.
 ## Development
 
 ```bash
-cargo test              # run all tests (18 unit + 11 integration)
+cargo test              # run all tests (31 unit + 16 integration)
 cargo build             # build server only
 cargo build --features client  # build server + client
 ```

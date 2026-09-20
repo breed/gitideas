@@ -6,6 +6,7 @@ mod oauth;
 mod search;
 mod storage;
 mod types;
+mod web;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -134,13 +135,39 @@ async fn main() {
         }
     }
 
-    info!(repo = %repo_path.display(), url = %server_url, "configuration loaded");
+    // Google sign-in for the web dialog is optional: all three keys must be set.
+    let google = match (
+        config.get("google_client_id"),
+        config.get("google_client_secret"),
+        config.get("email"),
+    ) {
+        (Some(id), Some(secret), Some(email)) => Some(web::GoogleConfig {
+            client_id: id.clone(),
+            client_secret: secret.clone(),
+            email: email.clone(),
+        }),
+        (None, None, None) => None,
+        _ => {
+            tracing::error!(
+                "google sign-in needs all of 'google_client_id', 'google_client_secret' and 'email'"
+            );
+            std::process::exit(1);
+        }
+    };
+
+    info!(
+        repo = %repo_path.display(),
+        url = %server_url,
+        google_login = google.is_some(),
+        "configuration loaded"
+    );
 
     let state = Arc::new(AppState {
         git_lock: tokio::sync::Mutex::new(()),
         auth_token: token,
         repo_path,
         oauth: oauth::OAuthState::new(server_url),
+        google,
     });
 
     // REST API and MCP routes — all use OAuth auth
@@ -170,9 +197,20 @@ async fn main() {
         )
         .route("/oauth/token", post(oauth::token_exchange));
 
+    // Browser routes: robots.txt, Google sign-in, and the add dialog
+    // (guarded by the session cookie inside the handlers)
+    let web_routes = Router::new()
+        .route("/robots.txt", get(web::robots_txt))
+        .route("/", get(web::index))
+        .route("/auth/google", get(web::google_login))
+        .route("/auth/google/callback", get(web::google_callback))
+        .route("/web/add", post(web::web_add))
+        .route("/web/logout", post(web::logout));
+
     let app = Router::new()
         .merge(authed_routes)
         .merge(oauth_routes)
+        .merge(web_routes)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO))

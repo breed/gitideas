@@ -4,7 +4,9 @@ rest server for searching and adding ideas to a git repository
 
 ## security
 
-all endpoints (REST and MCP) require OAuth 2.1 access tokens. no raw bearer token auth.
+all REST and MCP endpoints require OAuth 2.1 access tokens. no raw bearer token auth.
+
+the web dialog at `/` uses google sign-in instead: only the `email` from the config may sign in, anyone else gets a `go away!` page and the rejected email is logged. the session is an HMAC-signed HttpOnly cookie that is not a valid bearer token. `/robots.txt` disallows all crawlers.
 
 ## data files
 
@@ -77,9 +79,14 @@ repo = /path/to/git/repo
 # optional:
 # host = 127.0.0.1
 # url = https://your-public-url.com
+# optional, all three together enable the web dialog at /:
+# google_client_id = ...apps.googleusercontent.com
+# google_client_secret = ...
+# email = you@example.com
 ```
 
 - `token` is the password users enter in the OAuth authorization page (not used as a direct bearer token)
+- the google redirect URI to register is `<url>/auth/google/callback`
 
 ## running the code
 
