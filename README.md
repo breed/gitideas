@@ -70,7 +70,7 @@ The `gitideas-client` CLI handles this automatically, opening a browser on first
 
 ## Web Dialog
 
-`GET /` shows a "Sign in with Google" button. After signing in with the configured `email`, a dialog lets you pick the type (IDEA, TODO, MEMORY, NOTES), enter a subject, and type, paste, or drop content. Dropped or pasted images are embedded as base64 markdown; dropped text files are appended. Any other Google account gets a `go away!` page and the rejected email is logged.
+`GET /` shows a "Sign in with Google" button. After signing in with the configured `email`, a dialog lets you pick the type (MEMORY by default, or IDEA, TODO, NOTES), enter a subject, and type, paste, or drop content. Dropped or pasted images are embedded as base64 markdown; dropped text files are appended. If the subject is empty, pasting or dropping text fills it with the first line, cut at five words. Any other Google account gets a `go away!` page and the rejected email is logged.
 
 The dialog posts to `POST /web/add`, which is guarded by an HttpOnly session cookie rather than an OAuth token. `GET /robots.txt` disallows all crawlers.
 

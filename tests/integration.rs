@@ -704,7 +704,7 @@ async fn test_google_login_allowed_email_can_add() {
         .await
         .unwrap();
     assert!(body.contains("Sign out"));
-    assert!(body.contains("<option value=\"MEMORY\">"));
+    assert!(body.contains("<option value=\"MEMORY\" selected>"));
 
     // and adding works through the web endpoint
     let resp = client

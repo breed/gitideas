@@ -420,9 +420,9 @@ fn dialog_page(email: &str) -> String {
 <form id="add">
   <label for="type">Type</label>
   <select id="type" name="type">
+    <option value="MEMORY" selected>MEMORY</option>
     <option value="IDEA">IDEA</option>
     <option value="TODO">TODO</option>
-    <option value="MEMORY">MEMORY</option>
     <option value="NOTES">NOTES</option>
   </select>
   <label for="subject">Subject</label>
@@ -456,15 +456,28 @@ fn dialog_page(email: &str) -> String {
     text.focus();
   }}
 
+  // If the subject is empty, use the first non-empty line of s, cut at 5 words.
+  function suggestSubject(s) {{
+    if (subject.value) return;
+    const line = (s || '').split(/\r?\n/).map(l => l.trim()).find(l => l.length);
+    if (!line) return;
+    subject.value = line.split(/\s+/).slice(0, 5).join(' ').slice(0, 120);
+  }}
+
+  function insertText(t) {{
+    suggestSubject(t);
+    insert(t.endsWith('\n') ? t : t + '\n');
+  }}
+
   function addFile(file) {{
     const name = file.name || 'pasted';
-    if (!subject.value) subject.value = name.slice(0, 120);
     const reader = new FileReader();
     if (file.type.startsWith('image/')) {{
+      if (!subject.value) subject.value = name.slice(0, 120);
       reader.onload = () => insert('![' + name.replace(/[\[\]]/g, '') + '](' + reader.result + ')\n');
       reader.readAsDataURL(file);
     }} else {{
-      reader.onload = () => insert(reader.result.endsWith('\n') ? reader.result : reader.result + '\n');
+      reader.onload = () => insertText(reader.result);
       reader.readAsText(file);
     }}
   }}
@@ -492,7 +505,7 @@ fn dialog_page(email: &str) -> String {
     e.preventDefault();
     if (handleTransfer(e.dataTransfer)) return;
     const t = e.dataTransfer.getData('text/plain');
-    if (t) insert(t.endsWith('\n') ? t : t + '\n');
+    if (t) insertText(t);
   }});
 
   document.addEventListener('paste', e => {{
@@ -501,12 +514,12 @@ fn dialog_page(email: &str) -> String {
     let hasFile = false;
     for (const it of cd.items) if (it.kind === 'file') hasFile = true;
     if (hasFile) {{ e.preventDefault(); handleTransfer(cd); return; }}
+    const t = cd.getData('text/plain');
+    if (e.target === subject) return;
+    if (e.target === text) {{ suggestSubject(t); return; }}
     // plain text pasted outside the inputs goes into the text area
-    if (e.target !== text && e.target !== subject) {{
-      e.preventDefault();
-      const t = cd.getData('text/plain');
-      if (t) insert(t);
-    }}
+    e.preventDefault();
+    if (t) insertText(t);
   }});
 
   form.addEventListener('submit', async e => {{
